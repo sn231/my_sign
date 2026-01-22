@@ -50,20 +50,33 @@ class TiebaSign:
             return False
 
     def get_followed_tiebas(self) -> List[str]:
-        """获取账号关注的所有贴吧列表"""
+        """获取账号关注的所有贴吧列表（加强版）"""
         tiebas = []
         try:
-            url = f"https://tieba.baidu.com/f/like/mylike?ie=utf-8&pn=0&rn={CONFIG['TIEBA_PAGE_SIZE']}"
-            resp = self.session.get(url, timeout=10)
-            # 解析网页中的贴吧列表（2025年该接口返回HTML，需提取关键数据）
+            # 尝试访问个人爱逛的贴吧页面
+            url = "https://tieba.baidu.com/f/like/mylike"
+            resp = self.session.get(url, timeout=15)
             html = resp.text
-            # 提取贴吧名称的核心逻辑（适配2025年页面结构）
+            
             import re
-            pattern = re.compile(r'class="forum_name_wrap".*?>(.*?)<\/a>')
-            tieba_names = pattern.findall(html)
-            if tieba_names:
-                tiebas = [name.strip() for name in tieba_names if name.strip()]
-            print(f"获取到关注的贴吧：{tiebas}")
+            # 姿势1：找 title 属性（最常用）
+            pattern1 = re.compile(r'title="点击进入(.*?)吧"')
+            # 姿势2：找 forum_name 类
+            pattern2 = re.compile(r'class="forum_name".*?>(.*?)</a>')
+            # 姿势3：找 kw 参数
+            pattern3 = re.compile(r'kw=(.*?)"')
+
+            tiebas = pattern1.findall(html) + pattern2.findall(html) + pattern3.findall(html)
+            
+            # 去重，去掉重复抓到的名字
+            tiebas = list(set([name.strip() for name in tiebas if name.strip()]))
+            
+            # 如果还是空，打印一下网页内容前200字，帮我们调试
+            if not tiebas:
+                print(f"DEBUG: 抓取失败，网页内容预览：{html[:200]}")
+            else:
+                print(f"成功获取到 {len(tiebas)} 个贴吧：{tiebas}")
+                
         except Exception as e:
             print(f"获取关注贴吧异常：{str(e)}")
         return tiebas
