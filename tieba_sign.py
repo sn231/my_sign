@@ -83,12 +83,9 @@ class TiebaSign:
         return tiebas
 
     def sign_tieba(self, tieba_name: str) -> Dict[str, str]:
-        """单个贴吧签到"""
-        result = {
-            "tieba": tieba_name,
-            "status": "失败",
-            "msg": ""
-        }
+        """单个贴吧签到（App 接口版）"""
+        result = {"tieba": tieba_name, "status": "失败", "msg": ""}
+        
         # 随机延迟，防风控
         delay = random.uniform(CONFIG["MIN_DELAY"], CONFIG["MAX_DELAY"])
         time.sleep(delay)
@@ -97,15 +94,14 @@ class TiebaSign:
             result["msg"] = "tbs参数为空"
             return result
 
-       try:
-            # 切换到百度贴吧手机 App 的底层接口，这个更稳
+        try:
+            # 切换到百度贴吧手机 App 的底层接口
             url = "https://tieba.baidu.com/c/c/forum/sign"
             payload = {
                 "kw": tieba_name,
                 "tbs": self.tbs,
                 "sign": "1"
             }
-            # 伪装成真实的安卓 App
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "User-Agent": "bdtb for Android 12.5.1.0",
@@ -115,24 +111,25 @@ class TiebaSign:
             resp = self.session.post(url, data=payload, headers=headers, timeout=10)
             data = resp.json()
 
-            # 百度 App 协议：error_code 为 "0" 是真正成功
             err_code = str(data.get("error_code", ""))
             if err_code == "0":
                 result["status"] = "签到成功"
-                result["msg"] = "App 接口已确认"
+                result["msg"] = "App接口确认成功"
             elif err_code == "160002":
                 result["status"] = "已签到"
-                result["msg"] = "请勿重复签到"
+                result["msg"] = "今日已签，请勿重复"
             elif err_code == "1":
                 result["status"] = "失败"
-                result["msg"] = "BDUSS 可能失效或需要验证码"
+                result["msg"] = "BDUSS失效或需手动验证"
             else:
                 result["status"] = "失败"
-                result["msg"] = data.get("error_msg", f"未知代码:{err_code}")
+                result["msg"] = data.get("error_msg", f"代码:{err_code}")
 
         except Exception as e:
             result["status"] = "异常"
             result["msg"] = f"请求崩溃：{str(e)}"
+        
+        print(f"[{tieba_name}] {result['status']} - {result['msg']}")
         return result
 
     def run(self) -> Dict[str, any]:
