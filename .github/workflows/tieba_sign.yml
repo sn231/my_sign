@@ -32,6 +32,7 @@ jobs:
         env:
           # 从GitHub Secrets读取敏感信息
           BDUSS_LIST: ${{ secrets.BDUSS_LIST }}
+          TIEBA_NAMES: ${{ secrets.TIEBA_NAMES }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
