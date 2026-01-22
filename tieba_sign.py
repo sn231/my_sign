@@ -2,86 +2,79 @@ import requests
 import random
 import time
 import os
-import re
-from typing import List, Dict
+from typing import List
 
 class TiebaSign:
     def __init__(self, bduss: str):
         self.bduss = bduss
         self.session = requests.Session()
+        # 究极伪装：全套浏览器请求头
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Cookie": f"BDUSS={self.bduss}",
-            "Referer": "https://tieba.baidu.com/",
-            "Accept": "application/json, text/javascript, */*; q=0.01"
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Connection": "keep-alive",
         }
-        self.session.headers.update(self.headers)
+        # 把 BDUSS 塞进 Cookie 桶
+        self.session.cookies.set("BDUSS", self.bduss, domain="baidu.com")
         self.tbs = ""
 
-    def get_tbs(self) -> bool:
-        """获取签到必须的 tbs 参数"""
+    def check_login(self) -> bool:
+        """多重验证登录状态"""
         try:
-            url = "https://tieba.baidu.com/dc/common/tbs"
-            res = self.session.get(url, timeout=10).json()
-            if res.get("is_login") == 1:
-                self.tbs = res.get("tbs")
+            # 打印 BDUSS 的头尾，帮你肉眼核对（中间打码）
+            print(f"【调试】当前使用的 BDUSS: {self.bduss[:10]}...{self.bduss[-10:]}")
+            
+            # 访问个人主页来测试是否真的登录
+            test_url = "https://tieba.baidu.com/f/user/json_userinfo"
+            res = self.session.get(test_url, headers=self.headers, timeout=10).json()
+            
+            if res.get("error") == "success" or res.get("data"):
+                # 如果主页能通，赶紧拿 tbs
+                tbs_url = "https://tieba.baidu.com/dc/common/tbs"
+                tbs_res = self.session.get(tbs_url, headers=self.headers).json()
+                self.tbs = tbs_res.get("tbs")
+                print(f"【成功】登录验证通过！tbs: {self.tbs}")
                 return True
-            print(f"【错误】BDUSS 可能已失效，请重新抓取。返回结果：{res}")
+            
+            print(f"【失败】百度坚持说你没登录。返回内容：{res}")
             return False
         except Exception as e:
-            print(f"【异常】获取 tbs 失败：{e}")
+            print(f"【异常】验证流程崩溃：{e}")
             return False
-
-    def get_tiebas(self) -> List[str]:
-        """获取贴吧名单：优先从环境变量 TIEBA_NAMES 读取"""
-        manual = os.getenv("TIEBA_NAMES", "")
-        if manual:
-            return [n.strip() for n in manual.split(",") if n.strip()]
-        return []
 
     def sign(self, name: str) -> str:
-        """核心签到逻辑"""
-        # 随机延迟，防止被抓
-        time.sleep(random.uniform(2, 5))
+        time.sleep(random.uniform(3, 7)) # 模拟真人思考时间
         try:
-            # 使用网页版签到接口，这个接口目前对 BDUSS 登录最友好
             url = "https://tieba.baidu.com/sign/add"
             data = {"ie": "utf-8", "kw": name, "tbs": self.tbs}
-            res = self.session.post(url, data=data, timeout=10).json()
+            res = self.session.post(url, data=data, headers=self.headers, timeout=10).json()
             
-            # 这里的逻辑涵盖了所有可能的情况
-            if res.get("no") == 0:
-                return "签到成功"
-            elif res.get("no") == 1101:
-                return "已签到"
-            elif res.get("no") == 2150040:
-                return "需要验证码（脚本暂时无法处理）"
-            else:
-                return f"失败：{res.get('error', '未知原因')} (错误码:{res.get('no')})"
+            if res.get("no") == 0: return "签到成功"
+            if res.get("no") == 1101: return "今日已签"
+            return f"失败：{res.get('error')} (码:{res.get('no')})"
         except Exception as e:
-            return f"请求崩溃：{e}"
+            return f"崩溃：{e}"
 
 def main():
-    bduss_list = [b.strip() for b in os.getenv("BDUSS_LIST", "").split(",") if b.strip()]
+    # 彻底解决 Secrets 读取可能存在的空格换行问题
+    raw_bduss = os.getenv("BDUSS_LIST", "")
+    bduss_list = [b.strip() for b in raw_bduss.replace("\n", "").split(",") if b.strip()]
+    
+    names = [n.strip() for n in os.getenv("TIEBA_NAMES", "").split(",") if n.strip()]
+
     if not bduss_list:
-        print("未检测到 BDUSS_LIST，请检查 Secrets 配置。")
+        print("错误：没找到 BDUSS_LIST！")
         return
 
     for bduss in bduss_list:
-        print(f"\n>>> 正在处理账号：{bduss[:10]}***")
         worker = TiebaSign(bduss)
-        if not worker.get_tbs():
-            continue
-            
-        names = worker.get_tiebas()
-        if not names:
-            print("未配置贴吧名单 TIEBA_NAMES。")
-            continue
-            
-        print(f"待签到名单：{names}")
-        for name in names:
-            result = worker.sign(name)
-            print(f"  - [{name}]: {result}")
+        if worker.check_login():
+            print(f"准备签到名单：{names}")
+            for name in names:
+                print(f"  - [{name}]: {worker.sign(name)}")
+        else:
+            print("该账号登录验证失败，跳过。")
 
 if __name__ == "__main__":
     main()
