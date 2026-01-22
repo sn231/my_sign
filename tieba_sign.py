@@ -50,35 +50,36 @@ class TiebaSign:
             return False
 
     def get_followed_tiebas(self) -> List[str]:
-        """获取账号关注的所有贴吧列表（加强版）"""
+        """获取贴吧列表：优先从环境变量读取，抓取作为备份"""
+        # 1. 先看看有没有手动设置贴吧名单
+        manual_names = os.getenv("TIEBA_NAMES", "")
+        if manual_names:
+            names = [n.strip() for n in manual_names.split(",") if n.strip()]
+            print(f"使用手动配置的贴吧：{names}")
+            return names
+
+        # 2. 如果没手动设置，再尝试自动抓取（加上编码修正）
         tiebas = []
         try:
-            # 尝试访问个人爱逛的贴吧页面
             url = "https://tieba.baidu.com/f/like/mylike"
             resp = self.session.get(url, timeout=15)
+            resp.encoding = 'gbk'  # 强制使用百度那个老古董编码
             html = resp.text
             
             import re
-            # 姿势1：找 title 属性（最常用）
-            pattern1 = re.compile(r'title="点击进入(.*?)吧"')
-            # 姿势2：找 forum_name 类
-            pattern2 = re.compile(r'class="forum_name".*?>(.*?)</a>')
-            # 姿势3：找 kw 参数
-            pattern3 = re.compile(r'kw=(.*?)"')
-
-            tiebas = pattern1.findall(html) + pattern2.findall(html) + pattern3.findall(html)
+            # 换一个更暴力的抓取规则，直接找 kw= 后面跟的东西
+            finds = re.findall(r'kw=(.*?)"', html)
+            for item in finds:
+                # 百度有的链接会进行 URL 编码，这里简单处理
+                from urllib.parse import unquote
+                name = unquote(item).strip()
+                if name and name not in tiebas:
+                    tiebas.append(name)
             
-            # 去重，去掉重复抓到的名字
-            tiebas = list(set([name.strip() for name in tiebas if name.strip()]))
-            
-            # 如果还是空，打印一下网页内容前200字，帮我们调试
-            if not tiebas:
-                print(f"DEBUG: 抓取失败，网页内容预览：{html[:200]}")
-            else:
-                print(f"成功获取到 {len(tiebas)} 个贴吧：{tiebas}")
-                
+            print(f"自动抓取到 {len(tiebas)} 个贴吧")
         except Exception as e:
-            print(f"获取关注贴吧异常：{str(e)}")
+            print(f"自动抓取异常：{str(e)}")
+            
         return tiebas
 
     def sign_tieba(self, tieba_name: str) -> Dict[str, str]:
