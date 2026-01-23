@@ -1,41 +1,32 @@
 name: 百度贴吧自动签到
 
-# 触发条件：每日UTC时间16点（对应北京时间0点）+ 手动触发
 on:
   schedule:
-    - cron: '15 16 * * *'
-  workflow_dispatch:  # 手动触发按钮
+    # 稍微改下时间，避开 16:15 这种超级高峰期，改成 16:37 试试
+    - cron: '37 16 * * *'
+  workflow_dispatch:
 
-# 作业配置
 jobs:
   sign:
-    runs-on: ubuntu-latest  # 使用最新Ubuntu环境
+    runs-on: ubuntu-latest
     steps:
-      # 1. 拉取代码到运行环境
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 2. 设置Python环境（3.12为2025年稳定版本）
       - name: 配置Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      # 3. 安装依赖
       - name: 安装依赖库
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
-      # 4. 执行签到脚本
       - name: 运行签到脚本
         env:
-          # 从GitHub Secrets读取敏感信息
           BDUSS_LIST: ${{ secrets.BDUSS_LIST }}
           TIEBA_NAMES: ${{ secrets.TIEBA_NAMES }}
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: |
-          python tieba_sign.py
+        run: python tieba_sign.py
