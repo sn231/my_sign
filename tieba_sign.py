@@ -1,39 +1,65 @@
 import requests
 import os
 import time
+import hashlib
 import random
 
+# 移动端签名密钥
+SIGN_KEY = "tiebaclient!!!"
+
+def calc_sign(data):
+    """百度贴吧 App 协议签名算法"""
+    # 1. 将字典按 key 排序
+    sorted_data = sorted(data.items(), key=lambda x: x[0])
+    # 2. 拼接 key=value 字符串
+    sign_str = "".join([f"{k}={v}" for k, v in sorted_data])
+    # 3. 加上密钥并计算 MD5
+    sign_str += SIGN_KEY
+    return hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
+
 def push_tg(token, chat_id, content):
-    """结果推送到 Telegram"""
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = {"chat_id": chat_id, "text": content, "parse_mode": "HTML"}
     try: requests.post(url, json=data, timeout=15)
     except: pass
 
-def get_like_tiebas(session):
-    """【App协议版】获取关注列表 - 返回纯净 JSON"""
-    print("正在获取关注列表...")
-    # 使用文档推荐的移动端接口和 RN=50 参数
-    url = "https://tieba.baidu.com/f/like/mylike?rn=50"
+def get_like_list(bduss):
+    """【App协议】获取关注列表"""
+    print("正在通过 App 协议获取关注列表...")
+    url = "http://c.tieba.baidu.com/c/f/forum/like"
+    data = {
+        'BDUSS': bduss,
+        '_client_id': 'wappc_1534235498291_488',
+        '_client_type': '2',
+        '_client_version': '9.7.8.0',
+        'from': '1008621y',
+        'model': 'MI+5',
+        'net_type': '1',
+        'page_no': '1',
+        'page_size': '200',
+        'timestamp': str(int(time.time())),
+        'vcode_tag': '11',
+    }
+    data['sign'] = calc_sign(data) # 加上签名
+
     try:
-        res = session.get(url, timeout=10).json()
-        if res.get("error") == 0 or res.get("no") == 0:
-            # 兼容不同版本的字段名
-            data = res.get("data", {})
-            tieba_list = data.get("like_forum", [])
-            names = [item.get("forum_name") for item in tieba_list if item.get("forum_name")]
-            print(f"成功获取到 {len(names)} 个贴吧")
-            return names
-        else:
-            print(f"获取列表失败，原因：{res.get('errmsg', '未知')}")
-            return []
+        res = requests.post(url, data=data, timeout=10).json()
+        names = []
+        # 文档指出：数据在 forum_list 的 non-gconforum 和 gconforum 中
+        forum_list = res.get("forum_list", {})
+        for category in ["non-gconforum", "gconforum"]:
+            forums = forum_list.get(category, [])
+            for f in forums:
+                if f.get("name"):
+                    names.append(f.get("name"))
+        print(f"成功获取到 {len(names)} 个贴吧")
+        return names
     except Exception as e:
-        print(f"获取列表异常: {e}")
+        print(f"获取列表失败: {e}")
         return []
 
 def main():
-    # 1. 初始化配置
     bduss = os.getenv("BDUSS_LIST", "").strip().split(",")[0].strip()
     tg_token = os.getenv("TG_BOT_TOKEN", "").strip()
     tg_chat_id = os.getenv("TG_CHAT_ID", "").strip()
@@ -42,61 +68,64 @@ def main():
         print("错误：BDUSS 配置缺失")
         return
 
-    # 2. 核心：使用移动端 UA (这是获取 JSON 的关键)
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; MI 9 SE) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/114.0.5735.130 Mobile Safari/537.36 Tieba/12.5.0.12",
-        "Cookie": f"BDUSS={bduss};",
-        "Referer": "https://tieba.baidu.com/"
-    })
-
-    # 3. 获取 TBS 动态校验码
+    # 1. 获取 tbs (签到必须参数)
     try:
-        tbs_res = session.get("https://tieba.baidu.com/dc/common/tbs", timeout=10).json()
+        tbs_res = requests.get(f"http://tieba.baidu.com/dc/common/tbs?BDUSS={bduss}").json()
         tbs = tbs_res.get("tbs")
     except:
         tbs = None
 
     if not tbs:
-        print("TBS 获取失败，可能 BDUSS 已过期")
+        print("TBS 获取失败，BDUSS 可能失效")
         return
 
-    # 4. 确定签到名单
+    # 2. 获取待签贴吧
     manual_names = [n.strip() for n in os.getenv("TIEBA_NAMES", "").split(",") if n.strip()]
-    if manual_names:
-        names = manual_names
-        print(f"使用手动配置的 {len(names)} 个贴吧")
-    else:
-        names = get_like_tiebas(session)
+    names = manual_names if manual_names else get_like_list(bduss)
 
     if not names:
-        print("未获取到任何待签到贴吧")
+        print("未发现待签到贴吧")
         return
 
-    report = [f"<b>📬 贴吧签到报告 (App协议版)</b>", f"账号：<code>{bduss[:10]}***</code>", ""]
+    report = [f"<b>📬 贴吧签到报告 (App核心协议)</b>", f"账号：<code>{bduss[:10]}***</code>", ""]
     
-    # 5. 执行签到
+    # 3. 移动端签到接口
+    sign_url = "https://c.tieba.baidu.com/c/c/forum/sign"
+    
     for name in names:
-        time.sleep(random.uniform(2, 4)) # 严格遵守文档建议的频率控制
+        time.sleep(random.uniform(2, 3))
         try:
-            url = "https://tieba.baidu.com/sign/add"
-            data = {"ie": "utf-8", "kw": name, "tbs": tbs}
-            res = session.post(url, data=data, timeout=10).json()
+            sign_data = {
+                'BDUSS': bduss,
+                '_client_id': 'wappc_1534235498291_488',
+                '_client_type': '2',
+                '_client_version': '9.7.8.0',
+                'kw': name,
+                'tbs': tbs,
+                'timestamp': str(int(time.time())),
+            }
+            sign_data['sign'] = calc_sign(sign_data)
             
-            no = res.get("no")
-            if no == 0:
-                report.append(f"✅ 【{name}】 成功")
-            elif no == 1101:
-                report.append(f"🔁 【{name}】 今日已签")
-            elif no == 160002:
+            res = requests.post(sign_url, data=sign_data, timeout=10).json()
+            # 使用文档提供的 error_code 判断逻辑
+            err_code = str(res.get("error_code", ""))
+            
+            if err_code == "0":
+                report.append(f"✅ 【{name}】 成功 (+6exp)")
+            elif err_code in ["1101", "160002", "20004"]:
+                report.append(f"🔁 【{name}】 已签到")
+            elif err_code in ["5", "257"]:
                 report.append(f"⚠️ 【{name}】 需验证码")
+            elif err_code == "1990055":
+                report.append(f"❌ 【{name}】 Cookie失效")
+                break # Cookie失效就不跑了
             else:
-                msg = res.get("errmsg") or res.get("error") or "未知错误"
-                report.append(f"❌ 【{name}】 失败({no}: {msg})")
-        except:
+                msg = res.get("error_msg") or "未知错误"
+                report.append(f"❌ 【{name}】 失败({err_code}: {msg})")
+        except Exception as e:
             report.append(f"💥 【{name}】 程序崩溃")
+            print(f"签到 {name} 异常: {e}")
 
-    # 6. 推送
     final_report = "\n".join(report)
     print(final_report)
     push_tg(tg_token, tg_chat_id, final_report)
