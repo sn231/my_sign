@@ -9,8 +9,8 @@ SIGN_KEY = "tiebaclient!!!"
 
 def calc_sign(data):
     """百度贴吧 App 协议签名算法"""
-    # 1. 将字典按 key 排序
-    sorted_data = sorted(data.items(), key=lambda x: x[0])
+    # 1. 过滤掉值为 None 的项，将字典按 key 排序
+    sorted_data = sorted([ (k, v) for k, v in data.items() if v is not None ], key=lambda x: x[0])
     # 2. 拼接 key=value 字符串
     sign_str = "".join([f"{k}={v}" for k, v in sorted_data])
     # 3. 加上密钥并计算 MD5
@@ -24,10 +24,11 @@ def push_tg(token, chat_id, content):
     try: requests.post(url, json=data, timeout=15)
     except: pass
 
-def get_like_list(bduss):
+def get_like_list(session, bduss):
     """【App协议】获取关注列表"""
     print("正在通过 App 协议获取关注列表...")
-    url = "http://c.tieba.baidu.com/c/f/forum/like"
+    # 改用 HTTPS 保证稳定性
+    url = "https://c.tieba.baidu.com/c/f/forum/like"
     data = {
         'BDUSS': bduss,
         '_client_id': 'wappc_1534235498291_488',
@@ -39,15 +40,14 @@ def get_like_list(bduss):
         'page_no': '1',
         'page_size': '200',
         'timestamp': str(int(time.time())),
-        'vcode_tag': '11',
     }
-    data['sign'] = calc_sign(data) # 加上签名
+    data['sign'] = calc_sign(data)
 
     try:
-        res = requests.post(url, data=data, timeout=10).json()
+        res = session.post(url, data=data, timeout=10).json()
         names = []
-        # 文档指出：数据在 forum_list 的 non-gconforum 和 gconforum 中
         forum_list = res.get("forum_list", {})
+        # 合并普通吧和官方吧
         for category in ["non-gconforum", "gconforum"]:
             forums = forum_list.get(category, [])
             for f in forums:
@@ -56,7 +56,7 @@ def get_like_list(bduss):
         print(f"成功获取到 {len(names)} 个贴吧")
         return names
     except Exception as e:
-        print(f"获取列表失败: {e}")
+        print(f"获取列表异常: {e}")
         return []
 
 def main():
@@ -65,12 +65,20 @@ def main():
     tg_chat_id = os.getenv("TG_CHAT_ID", "").strip()
     
     if not bduss:
-        print("错误：BDUSS 配置缺失")
+        print("错误：BDUSS 未配置")
         return
 
-    # 1. 获取 tbs (签到必须参数)
+    # 使用统一 Session
+    session = requests.Session()
+    # 模拟手机端 Header
+    session.headers.update({
+        "User-Agent": "bdtb for Android 9.7.8.0",
+        "Content-Type": "application/x-www-form-urlencoded"
+    })
+
+    # 1. 获取 tbs
     try:
-        tbs_res = requests.get(f"http://tieba.baidu.com/dc/common/tbs?BDUSS={bduss}").json()
+        tbs_res = session.get(f"https://tieba.baidu.com/dc/common/tbs?BDUSS={bduss}").json()
         tbs = tbs_res.get("tbs")
     except:
         tbs = None
@@ -79,35 +87,39 @@ def main():
         print("TBS 获取失败，BDUSS 可能失效")
         return
 
-    # 2. 获取待签贴吧
+    # 2. 获取列表
     manual_names = [n.strip() for n in os.getenv("TIEBA_NAMES", "").split(",") if n.strip()]
-    names = manual_names if manual_names else get_like_list(bduss)
+    names = manual_names if manual_names else get_like_list(session, bduss)
 
     if not names:
         print("未发现待签到贴吧")
         return
 
-    report = [f"<b>📬 贴吧签到报告 (App核心协议)</b>", f"账号：<code>{bduss[:10]}***</code>", ""]
+    report = [f"<b>📬 贴吧签到报告</b>", f"账号：<code>{bduss[:10]}***</code>", ""]
     
-    # 3. 移动端签到接口
+    # 3. 签到
     sign_url = "https://c.tieba.baidu.com/c/c/forum/sign"
     
     for name in names:
-        time.sleep(random.uniform(2, 3))
+        time.sleep(random.uniform(2, 4))
         try:
+            # 补齐所有 App 协议参数，确保签名绝对正确
             sign_data = {
                 'BDUSS': bduss,
                 '_client_id': 'wappc_1534235498291_488',
                 '_client_type': '2',
                 '_client_version': '9.7.8.0',
+                'from': '1008621y',
                 'kw': name,
+                'model': 'MI+5',
+                'net_type': '1',
                 'tbs': tbs,
                 'timestamp': str(int(time.time())),
             }
             sign_data['sign'] = calc_sign(sign_data)
             
-            res = requests.post(sign_url, data=sign_data, timeout=10).json()
-            # 使用文档提供的 error_code 判断逻辑
+            res = session.post(sign_url, data=sign_data, timeout=10).json()
+            # 统一转为字符串进行判断
             err_code = str(res.get("error_code", ""))
             
             if err_code == "0":
@@ -118,13 +130,12 @@ def main():
                 report.append(f"⚠️ 【{name}】 需验证码")
             elif err_code == "1990055":
                 report.append(f"❌ 【{name}】 Cookie失效")
-                break # Cookie失效就不跑了
+                break
             else:
-                msg = res.get("error_msg") or "未知错误"
+                msg = res.get("error_msg") or "未知原因"
                 report.append(f"❌ 【{name}】 失败({err_code}: {msg})")
         except Exception as e:
             report.append(f"💥 【{name}】 程序崩溃")
-            print(f"签到 {name} 异常: {e}")
 
     final_report = "\n".join(report)
     print(final_report)
