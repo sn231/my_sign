@@ -3,7 +3,7 @@ name: 百度贴吧自动签到
 on:
   schedule:
     # 稍微改下时间，避开 16:15 这种超级高峰期，改成 16:37 试试
-    - cron: '37 16 * * *'
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 jobs:
