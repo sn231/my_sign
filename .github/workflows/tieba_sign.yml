@@ -2,18 +2,23 @@ name: 百度贴吧自动签到
 
 on:
   schedule:
-    # 稍微改下时间，避开 16:15 这种超级高峰期，改成 16:37 试试
-    - cron: '0 2 * * *'
+    # 这里的 42 19 表示 UTC 时间 19:42，即北京时间凌晨 03:42
+    # 避开整点和热门时间，防止任务被 GitHub 丢弃
+    - cron: '42 19 * * *'
   workflow_dispatch:
 
 jobs:
   sign:
     runs-on: ubuntu-latest
+    # 如果是私有仓库，建议加上这个，防止权限莫名其妙报错
+    permissions:
+      contents: write
+    
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: 配置Python
+      - name: 配置 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
