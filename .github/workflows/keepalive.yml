@@ -1,0 +1,16 @@
+name: Keepalive Workflow
+
+on:
+  schedule:
+    - cron: '0 0 1 * *' # 每个月运行一次就行，没必要天天跑
+  workflow_dispatch: # 方便你手动点着玩
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # 这步很重要，没权限它动不了你的 Actions
+    steps:
+      - uses: liskin/gh-workflow-keepalive@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
