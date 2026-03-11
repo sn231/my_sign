@@ -87,7 +87,7 @@ def main():
             else:
                 report.append(f"❌ 【{name}】 失败({errno})")
         except:
-            # 针对你提到的【数据结构】崩溃问题，这里捕获异常
+            # 针对你提到的【数据结构】崩溃问题，这里捕获异常1
             report.append(f"💥 【{name}】 异常")
 
     final_report = "\n".join(report)
