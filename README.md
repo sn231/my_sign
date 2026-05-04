@@ -4,7 +4,7 @@
 > 文件名：`Monika_After_Story-0.12.15-Mod.zip`  
 > SHA-256：`587cb0656bd7cd6074bc4610cee90e13cc73e37dbe24d8cdba47a18d847dc6dc`  
 > ZIP 体积：约 238.6 MB  
-> 解压后内容总大小（按 ZIP 内标注）：约 296.9 MB  
+> 解压后内容总大小（按 ZIP 内标注）：约 296.9 MB  22
 > ZIP 内文件数：1111
 
 ---
